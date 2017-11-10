@@ -1,0 +1,284 @@
+---
+title: "Modeling and prediction for movies"
+output: 
+  html_document: 
+    fig_height: 4
+    highlight: pygments
+    theme: spacelab
+---
+
+## Setup
+
+### Load packages and data
+
+```{r load-packages, message = FALSE}
+library(ggplot2)
+library(dplyr)
+library(statsr)
+```
+
+```{r load-data}
+load("movies.Rdata")
+```
+
+
+
+* * *
+
+## Part 1: Data
+
+###Sources
+
+The data set for this project is sourced from Rotten Tomatoes and IMDB - two of the biggest movie databases online. IMDb is the #1 movie website in the world with a combined web and mobile audience of more than 250 million unique monthly visitors. IMDb offers a searchable database of more than 185 million data items including more than 4 million movies, TV and entertainment programs and more than 6 million cast and crew members.
+
+Rotten Tomatoes ranks movie according to the Tomatometer rating, which is based on the published opinions of hundreds of film and television critics. Tomatometer represents the percentage of professional critic reviews that are positive for a given film or television show. A movie with a 60% or higher score from the critics is considered "Fresh". The movies with 59% or lower are considered "Rotten".
+
+###Generalizability and Biases
+
+The data set for this project is sourced through APIs and comprised of 651 randomly sampled movies produced and released before 2016. Since the random sampling was used, the trends in the data can be generalized to the overall movies population. The data, however, cannot be used for determining the causation, since there was no random assignment.
+
+There's not much information on how IMDB and Rotten Tomatoes collect the data, so the opportunities to identify potential biases are limited. Nonetheless, one of the obvious potential biases is the voluntary response bias - the movies are ranked by those film critics and users who are willing to do it, which is, most probably, a relatively small proportion of the overall movie watchers population. Additionally, there's a potential undercoverage bias - not all movie watchers worldwide use internet, and the internet penetration in different countries varies. These two potential biases pose a risk of some members of the movie watchers population being inadequately represented in the data set.
+
+* * *
+
+## Part 2: Research question
+
+My boss has just told me that Paramount Pictures' management has asked our team to identify what makes movies highly rated among the internet users. They hope to use the findings of this report to adjust the studio's production and marketing strategy and estimate the future popularity of the recently released movies.
+
+As a Data Scientist, I would like to investigate what variables in the IMDB and Rotten Tomatoes databases are associated with higher critics and audience rankings and build a predictive model.
+
+* * *
+
+## Part 3: Exploratory data analysis
+
+First, let's look at the characteristics of our data base. 
+
+```{r}
+glimpse(movies)
+```
+
+From the first look, there are no obvious problems with variables and their data types. Let's look at the summary statistics:
+
+```{r}
+summary(movies)
+```
+
+There aren't many NAs, and we can safely remove them from the data set. Only 5 of 651 movies in the data set are labeled as TV movies (less than 1% of total), which doesn't look like a true population proportion. Additionally, there's an overlap between the "Documentary" as the type of the movie and "Documentary" as the movie genre.
+
+```{r}
+mov_doc <- movies %>% filter(title_type == "Documentary") %>% select(title_type, genre)
+
+summary(mov_doc)
+```
+
+Given these observations, it looks like the `title_type` variable is not adding much of valuable information and can be excluded.
+
+Next, let's look at the ratings data we have. The descriptive ranking system developed by Rotten Tomatoes is good from a marketing standpoint, but it's not necessarily useful for our analysis, as we have numerical variables of `critics_score` and `audience_score`. Let's look at how these scores are correlated to the IMDB score. I'll use a function from the GGally package for a nice visual representation.
+
+```{r}
+mov_score <- movies %>% select(imdb_rating, critics_score, audience_score)
+GGally::ggpairs(mov_score)
+```
+
+The scores are clearly collinear (correlated), and adding more than one score to the model would not add much value. We'll use a simple average of 3 scores as a new variable `movie_score`.
+
+Next, a movie can have several genres at once, and, to account for this, we need to split the `genre` variable into several yes/no categories. This way we'll be able to weigh each genre separately in the model.
+
+Finally, let's remove the variables that clearly do not add value to the analysis (movie URLs, number of votes on IMDB) or contain too many levels (the names of the movies, directors and actors, years and days of theater/DVD releases, etc).
+
+Let's implement the changes discussed above:
+
+```{r}
+movies_database <- movies %>% 
+  #Removing not useful columns
+  select(-c(title, title_type, thtr_rel_year, thtr_rel_month, thtr_rel_day, dvd_rel_year, dvd_rel_day, dvd_rel_month, imdb_num_votes, critics_rating, audience_rating, studio, director, actor1, actor2, actor3, actor4, actor5, imdb_url, rt_url)) %>% 
+  #Adding combined movie_score
+  mutate(movie_score = round((imdb_rating + critics_score + audience_score)/3)) %>% select(-c(imdb_rating, critics_score, audience_score)) %>% 
+  #Removing NAs
+  filter(!is.na(runtime)) %>% 
+  #Splitting the `genre` variable into separate categories
+  mutate(gen_act_adv = ifelse(genre == "Action & Adventure", 1, 0), gen_anim = ifelse(genre == "Animation", 1, 0), gen_arthouse = ifelse(genre == "Art House & International", 1, 0), gen_comed = ifelse(genre == "Comedy", 1, 0), gen_docum = ifelse(genre == "Documentary", 1, 0), gen_drama = ifelse(genre == "Drama", 1, 0), gen_horror = ifelse(genre == "Horror", 1, 0), gen_musical = ifelse(genre == "Musical & Performing Arts", 1, 0), gen_mystery = ifelse(genre == "Mystery & Suspense", 1, 0), gen_sci_fi = ifelse(genre == "Science Fiction & Fantasy", 1, 0), gen_other = ifelse(genre == "Other", 1, 0)) %>% 
+  #Removing the `genre` variable, which is no longer needed
+  select(-genre)
+
+summary(movies_database)
+```
+
+The resulting summary score distribution is left-skewed and has two prominent peaks around 37 and 63 points, with median score of 43. 
+
+```{r}
+ggplot(movies_database, aes(movie_score)) +
+  geom_histogram() +
+  ylab("Count") +
+  xlab("Score") +
+  ggtitle("Movies Score Distribution")
+
+summary(movies_database$movie_score)
+```
+
+* * *
+
+## Part 4: Modeling
+
+###Model Selection and Fitting
+
+Since we have already excluded not relevant variables in the previous section, let's proceed to the model building. The model should predict the consolidated movie score, and, since we already have a set of variables that seems to make sense, it would be reasonable to use a backward elimination method. The number of variables is quite high, so we'll use the p-value-based backward elimination method, which requires fitting fewer models as compared to an R^2^-based method. Additionally, the p-value-based methods are more commonly used.
+
+Let's fit the model, using all variables that were left after we cleaned the database:
+
+```{r}
+mov_corr <- lm(movie_score ~ runtime + mpaa_rating + best_pic_nom + best_pic_win + best_actor_win + best_actress_win + best_dir_win + top200_box + gen_act_adv + gen_anim + gen_arthouse + gen_comed + gen_docum + gen_drama + gen_horror + gen_musical + gen_mystery + gen_sci_fi + gen_other, data = movies_database)
+summary(mov_corr)
+```
+
+We see that the `gen_other` variable gives the NA coefficients in the model, which means that this variable is collinear with some other variable in the model and doesn't give any new information. We can drop the variable, and it will not change the coefficients for other variables.
+
+The parameter with the highest p-value is mpaa_ratingNC-17. It's just one of the levels of the `mpaa_rating` variable, and at least 3 other levels of that variable have p-values less than 0.05. We can't drop separate levels of a variable, so, since at least some levels of the variable are less than 0.05, we keep all levels of the variable in the model.
+
+Aside from the `mpaa_rating` variable, `gen_drama` is the parameter with the highest p-value, let's drop it and refit the model:
+
+```{r}
+mov_corr1 <- lm(movie_score ~ runtime + mpaa_rating + best_pic_nom + best_pic_win + best_actor_win + best_actress_win + best_dir_win + top200_box + gen_act_adv + gen_anim + gen_arthouse + gen_comed + gen_docum + gen_horror + gen_musical + gen_mystery + gen_sci_fi, data = movies_database)
+summary(mov_corr1)
+```
+
+Now, the `best_pic_win` has the highest p-value. Let's remove this variable and refit the model:
+
+```{r}
+mov_corr2 <- lm(movie_score ~ runtime + mpaa_rating + best_pic_nom + best_actor_win + best_actress_win + best_dir_win + top200_box + gen_act_adv + gen_anim + gen_arthouse + gen_comed + gen_docum + gen_horror + gen_musical + gen_mystery + gen_sci_fi, data = movies_database)
+summary(mov_corr2)
+```
+
+Next, the `best_actress_win` variable goes away:
+```{r}
+mov_corr3 <- lm(movie_score ~ runtime + mpaa_rating + best_pic_nom + best_actor_win + best_dir_win + top200_box + gen_act_adv + gen_anim + gen_arthouse + gen_comed + gen_docum + gen_horror + gen_musical + gen_mystery + gen_sci_fi, data = movies_database)
+summary(mov_corr3)
+```
+We're getting close! Let's remove the `best_actor_win` variable:
+```{r}
+mov_corr4 <- lm(movie_score ~ runtime + mpaa_rating + best_pic_nom + best_dir_win + top200_box + gen_act_adv + gen_anim + gen_arthouse + gen_comed + gen_docum + gen_horror + gen_musical + gen_mystery + gen_sci_fi, data = movies_database)
+summary(mov_corr4)
+```
+
+Removing the `gen_arthouse` variable and refitting once again:
+
+```{r}
+mov_corr5 <- lm(movie_score ~ runtime + mpaa_rating + best_pic_nom + best_dir_win + top200_box + gen_act_adv + gen_anim + gen_comed + gen_docum + gen_horror + gen_musical + gen_mystery + gen_sci_fi, data = movies_database)
+summary(mov_corr5)
+```
+And the `gen_anim` one also has to go away:
+
+```{r}
+mov_corr6 <- lm(movie_score ~ runtime + mpaa_rating + best_pic_nom + best_dir_win + top200_box + gen_act_adv + gen_comed + gen_docum + gen_horror + gen_musical + gen_mystery + gen_sci_fi, data = movies_database)
+summary(mov_corr6)
+```
+
+Looks like this is our final model, with adjusted R^2^ of roughly 0.31. That means that this model explains ~31% of the variability in this data set, which doesn't look high.
+
+###Model Diagnostics
+
+Let's check if our model satisfies the requirements of the Multiple Linear Regression.
+
+1) Each numerical explanatory variable (just one in this case) should be linearly related to the response variable.
+
+```{r}
+plot(mov_corr6$residuals ~ movies_database$runtime)
+```
+
+The residuals seem to be randomly scattered around zero, so this condition is met.
+
+2) Residuals should be nearly normal with mean around zero
+
+Let's plot a histogram of residuals and the residuals normal plot:
+
+```{r}
+hist(mov_corr6$residuals)
+qqnorm(mov_corr6$residuals)
+qqline(mov_corr6$residuals)
+```
+
+The residuals are nearly normal with slight left skew. The normal residuals plot shows some diversion from normality at the tails, but overall the distribution is nearly normal, so we can consider this condition also met.
+
+3) Residuals should be equally variable for low and high values of the predicted response variable
+
+
+```{r}
+plot(mov_corr6$residuals ~ mov_corr6$fitted.values)
+```
+
+This condition is not met - we can see a "fan" shape on the plot (also called heteroscedasctisity), which means that the model reqiures improvement. The most common solution to this is to transform a variable (e.g., a logarithm transformation). Also, it means that the model works better for the "narrower" part of the fan, which is observed for the higher scores.
+
+The only variable that can be log-transformed in our final model is `runtime`. Let's do the transformation and see if it improves the variability of the residuals:
+
+```{r}
+runtime2 <- log(movies_database$runtime)
+
+mov_corr_final <- lm(movie_score ~ runtime2 + mpaa_rating + best_pic_nom + best_dir_win + top200_box + gen_act_adv + gen_comed + gen_docum + gen_horror + gen_musical + gen_mystery + gen_sci_fi, data = movies_database)
+
+summary(mov_corr_final)
+
+plot(mov_corr_final$residuals ~ mov_corr_final$fitted.values)
+```
+
+The residuals doesn't seem to have changed much, but the adjusted R^2^ has improved in comparison to the non-transformed model.
+
+4) The residuals should be independent (no time-series dependencies)
+
+Since we have a random sample of the movies, there should be no time-series dependencies in the residuals, so this condition can be considered as met.
+
+###Interpretation of the final model
+
+Let's write down our final model and interpret the coefficients:
+
+Movie_Score = -1.9 + 11.05(log of runtime) + 0(mpaa_rating_G) + 2.15(mpaa_rating_NC-17) - 6.41(mpaa_rating_PG) - 11.35(mpaa_rating_PG_13) - 6.14(mpaa_rating_R) - 0.6(mpaa_rating_Unrated) + 14.11(best_pic_nom_yes) + 5.68(best_dir_win_yes) + 10.2(top200_box_yes) - 9.58(gen_act_adv) - 8.1(gen_comed) + 13.71(gen_docum) - 10.75(gen_horror) + 9.74(gen_musical) - 5.08(gen_mystery) - 9.08(gen_sci_fi)
+
+According to this model, to get the highest possible score a movie should be a Documentary, have a long runtime (the longer the better), and have an MPAA rating of NC-17. The movie should also be nominated for an Oscar, and its director should be an Oscar-winner (though not necessarily for the same movie). It would also help if the movie is in the Top 200 Box Office list on BoxOfficeMojo.
+
+At the same time, a hypothetical Horror movie rated PG-13, with no Oscar wins or an Oscar-winning director, and not in the Top 200 Box Office list, would have a negative score of 21.39. Though I have no doubt that a lot of such truly rotten movies exists, the model is clearly not working for such cases, as there are no negative scores in the data set.
+
+* * *
+
+## Part 5: Prediction
+
+To test our model, I've picked the 2016 movie "Arrival". I'm not good enough APIs yet, and there seems to be no "official" API for IMDB, so I just took the rankings and other movie parameters from the relevant pages:
+
+http://www.imdb.com/title/tt2543164/?ref_=adv_li_tt
+
+https://www.rottentomatoes.com/m/arrival_2016
+
+The Rotten Tomatoes rankings are represented differently from what we have in our movie data set. To make them comparable, I took the Averate Ratings for critics and audience and converted them into 1 to 100 scale. The resulting parameters of the movie can be summarized below as follows. I kept only the parameters that count as predictors in the model. Also, remember that we need to log-transform the runtime.
+
+```{r}
+
+imdb_score <- 8
+rotten_tomatoes_avg_critics <- 83
+rotten_tomatoes_avg_audience <- 80
+
+new_movie_score <- (imdb_score + rotten_tomatoes_avg_critics + rotten_tomatoes_avg_audience)/3
+
+new_movie <- data.frame(gen_mystery = 1, gen_sci_fi = 1, runtime2 = log(116), mpaa_rating = "PG-13", best_pic_nom = "yes", best_dir_win = "no", top200_box = "no", gen_act_adv = 0, gen_comed = 0, gen_docum = 0, gen_horror = 0, gen_musical = 0)
+```
+
+Let's do the prediction using the `predict` function, calculate the prediction interval with 95% confidence level and compare the predicted value to the actual movie score:
+
+```{r}
+new_movie_pred <- predict(mov_corr_final, new_movie, interval = "prediction", level = 0.95)
+
+new_movie_pred
+new_movie_score
+
+```
+
+The predicted score is ~1.4 standard errors lower than the actual score, but the actual score is within the 95% confidence interval for the predicted value. This confidence interval means that we can be 95% confident that the true movie score will be a value between 39.25 and 66.59 points, which indeed contains the true score for our movie (57).
+
+* * *
+
+## Part 6: Conclusion
+
+The predicted score of our model was substantially lower than the actual score, though the 95% confidence interval still captured the true score. With the adjusted R^2^ of only ~0.31, this is probably not the best model for predicting the scores of the movies based on the characteristics of the movies we discussed above. One of the potential explanations for the low R^2^ may be the p-value backward elimination method we used - though the results of our resulting model are statistically significant, an R^2^-based elimination method, though computation-intensive, could result in a higher R^2^ and more precise movie score prediction.
+
+It was rather unexpected to see the "Drama" genre to be not a statistically significant predictor for our model. The reason for that, I guess, is that the majority of the movies in the data set are dramas, and it makes other genres and parameters more influential as predictors. One of the ways to improve the model could be to use a more balanced data set - a data set containing an equal amount of the movies of each genre - for fitting.
+
+Additionally, the fan-shaped residuals vs. fitted values plot showed that the model works better for the higher scores and becomes more and more uncertain as the scores go lower. Since it may be a sign of an important variable missing in the data set, a way to improve the model could be to add more variables from the IMDB and Rotten Tomatoes databased and look for additional strong predictors.
+
+Overall, the linear regression model is not robust against outliers, which means that several super movie hits in the data set can potentially significantly skew the results. One of the ways to avoid this could be to use more sophisticated prediction methods (e.g., Decision Trees).

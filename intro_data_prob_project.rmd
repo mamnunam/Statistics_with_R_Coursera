@@ -1,0 +1,253 @@
+---
+title: "Exploring the BRFSS data"
+output: 
+  html_document: 
+    fig_height: 4
+    highlight: pygments
+    theme: spacelab
+---
+
+## Part 1: Data
+
+###The Scope of the Survey
+
+The Behavioral Risk Factor Surveillance System (BRFSS) data are colleted in 50 U.S. states as well as the District of Columbia and three U.S. territories. BRFSS completes more than 400,000 adult interviews each year. 
+
+###Methods of Data Collection and Potential Bias
+
+BRFSS conducts both landline telephone- and cellular telephone-based surveys, using the Random Digit Dialing (RDD) survery method. This method ensures random sampling of the surveyed population through random generation of the phone numbers to be called. The usage of RDD also gives an additional advantage: it includes unlisted numbers that would be missed if the numbers were selected from a phone book and reduces the convenience sampling bias.
+
+RDD method, however, introduces potential non-responce bias in case if responders differ from non-responders for the measured variables. Additionally, the data are self-reported and are subject to recall bias (the accuracy or completeness of the recollections "recalled" by study participants regarding events or experiences from the past.)
+
+To meet challenges of the RDD method and to ensure data quality and validity, BRFSS integrated multiple modes of data collection, such as surveying the adults who use only cellular telephones in parallel with the ongoing landline-based health survey, a mail follow-up survey, and a physical measurement study, which helps to adjust for recall bias.
+
+This, however, does not eliminate all potential issues with the data representativeness. The use of multiple modes may raise issues of comparability across modes. For example, questions asked by an interviewer over the telephone, as opposed to being asked on paper (in a mail follow-up survey), may be more likely to invoke socially desirable responses. Furthermore, questions asked on paper are more likely to ensure privacy and allow the respondent to complete the survey at his or her convenience. Finally, landline and cellular telephone modes are used for various subsets of the sample, making it difficult to determine whether there is a mode effect. Evidence exists that survey mode can affect respondents' answers to questions, even when questions are worded identically. 
+
+###Data Generalizability
+
+In conducting the BRFSS landline telephone survey, interviewers collect data from a randomly selected adult in a household. In conducting the cellular telephone version of the BRFSS questionnaire, interviewers collect data from an adult who participates by using a cellular telephone and resides in a private residence or college housing.
+
+Since BRFSS' approach includes both random sampling and random assignment, the results of the survey can be considered causal and generalizable. Based on the scope of the BRFSS' survey, health characteristics estimated from the survey results pertain to the non-institutionalized adult population, aged 18 years or older, who reside in the US. 
+
+###Data in this Study
+
+The current study includes only the data from 2013 and 2014, which does not allow any exploration of the factors influencing health characteristics over a long-term period. The 2013 and 2014 aggregate BRFSS combined landline and cell phone dataset is built from the landline and cell phone data submitted for 2013 and includes data for 50 states, the District of Columbia, Guam, and Puerto Rico.
+
+* * *
+
+## Part 2: Research questions
+
+###Research Quesion 1
+
+Sleep is an important part of life, with an individual spending an estimated 32 years of her or his life asleep. According to a 2015 research made by The German Socio-Economic Panel study at DIW Berlin, sleep is an important factor for life satisfaction and maximal life satisfaction is associated with about eight hours of sleep on a typical weekday. 
+
+Given the above findings, it would be interesting to check if the BRFSS data prove that the people who sleep more have a higher life satisfaction.
+
+**References**
+
+* The German Socio-Economic Panel study: https://www.diw.de/documents/publikationen/73/diw_01.c.500280.de/diw_sp0745.pdf
+
+###Research Quesion 2
+
+A 2012 study published in the Safety Science magazine showed that an increased level of education leads to increased seat belt usage, lower numbers of crashes and crash severities. Additionally, a recent study by the University of Washington in Seattle showed that women tend to wear seat belts more often than men: 90 percent of the time versus 82 percent of the time. Do the BRFSS data show that the seatbelt usage increases with the level of education and tends to be higher among female population?
+
+**References**
+
+* Safety Science magazine study: http://www.sciencedirect.com/science/article/pii/S0925753511003262 
+* The study by the University of Washington in Seattle: http://www.reuters.com/article/us-health-seatbelts-usa-idUSKBN177281 
+
+###Research Quesion 3
+
+Various studies have shown that overweight people are seen as less conscientious, less agreeable, less emotionally stable, less productive, lazy, etc, and, as a result, such people are paid less than their slimmer counterparts. Additionally, the studies show that the weight bias towards women is stronger than towards men. Do BRFSS data show the negative corellation between weight and salary? Does this correlation differ by gender?
+
+**References**
+
+Article from Forbes: https://www.forbes.com/sites/freekvermeulen/2011/03/22/the-price-of-obesity-how-your-salary-depends-on-your-weight/#3e31cb3d9abd
+
+* * *
+
+## Part 3: Exploratory data analysis
+
+Let's start with loading the database and the necessary packages. We'll need dplyr to manipulate the data and do quick summaries, and ggplot2 to create neat summary graphs.
+
+```{r load-packages, message = FALSE}
+library(ggplot2)
+library(dplyr)
+```
+
+```{r load-data}
+load("brfss2013.RData")
+```
+
+###Research Quesion 1
+
+**Do the BRFSS data prove that the people who sleep more have higher life satisfaction?**
+
+Let's define the variables we'll need to find the answer. From analyzing the database, we can see that the most relevant variables are:
+
+* `sleptim1`: How Much Time Do You Sleep
+* `lsatisfy`: Satisfaction With Life
+
+Let's save these variables separately so that we keep the main dataframe intact for other research questions. I'll use the select() function from dplyr, which selects columns from a dataframe:
+
+```{r}
+sleep_satisf <- brfss2013 %>% select(sleptim1, lsatisfy)
+```
+
+Let's explore the variables:
+
+```{r}
+summary(sleep_satisf$sleptim1)
+```
+We see that the sleep time has a nearly normal distribution, some outliers that look like data errors (I wish I could sleep for 450 hours a day!), and some substantial number of NAs. In fact, let's check how substantial that number is by counting all NAs and dividing them by the overall number of observations:
+
+```{r}
+mean(is.na(sleep_satisf$sleptim1))
+```
+Just 1.5%, which doesn't look like much. Let's filter() them out:
+
+```{r}
+sleep_satisf <- sleep_satisf %>% filter(!is.na(sleptim1))
+```
+Let's decide that an outlier is someone who sleeps more than 12 hours a day. How many of those do we have?
+```{r}
+mean(sleep_satisf$sleptim1 > 12)
+```
+Just 0.4%! Let's get rid of them and look at our summary statistics again. We'll use ggplot2's stat_function layer to show the data distribution.
+```{r}
+sleep_satisf <- sleep_satisf %>% filter(sleptim1 <= 12)
+summary(sleep_satisf$sleptim1)
+
+ggplot(sleep_satisf, aes(sleptim1)) +
+  geom_histogram(binwidth = 1, aes(y=..density..)) +
+  stat_function(fun=dnorm,
+                         color="red",
+                         args=list(mean=mean(sleep_satisf$sleptim1), 
+                                  sd=sd(sleep_satisf$sleptim1))) +
+  labs(title = "Average sleep time per person") +
+  xlab("Hours of sleep per night") +
+  ylab("Proportion of respondents")
+
+```
+
+Now our distribution of sleep times is very close to normal (the mean is almost equal to the median), which was expected. The last step: let's see what our life satisfaction situation is:
+```{r}
+summary(sleep_satisf$lsatisfy)
+mean(is.na(sleep_satisf$lsatisfy))
+```
+Oops! More than 97% of the respondents didn't answer this question. But we can still use the remaining 3% to derive statistically significant conclusions from the data. In fact, our sample of 11,223 responces gives us the confidence level of 99% and the margin of error of less than 1.3%. This means that for 99% of 484,388 cases, the distribution of the hours of sleep will differ from our sample by just +/-1.3%.
+
+I used the SurveyMonkey calculator to calculate the statistical significance: https://www.surveymonkey.com/mp/sample-size-calculator/ 
+
+Let's remove the NAs and see how life satisfaction differs by hours of sleep:
+
+```{r} 
+sleep_satisf <- sleep_satisf %>% filter(!is.na(lsatisfy))
+
+sleep_satisf %>% group_by(lsatisfy) %>% summarise(mean(sleptim1))
+```
+As we can see, happier people definitely tend to sleep longer, though still less than 8 hours a day, as suggested by the study. Some room for improvement! To summarize, we can consider the results of the German Socio-Economic Panel study to be confirmed by BRFSS data.
+
+But what about those respondents who declined to rank their life satisfaction? If happier people tend to sleep longer, can we classify how happy those NAs are? 
+
+```{r}
+brfss2013 %>% filter(is.na(lsatisfy)) %>% filter(!is.na(sleptim1)) %>% filter(sleptim1 <= 12) %>% summarise(mean(sleptim1))
+```
+This maps NAs life satisfaction to somewhere between Satisfied and Very Satisfied.
+
+###Research Quesion 2
+
+**Do the BRFSS data show that the seatbelt usage increases with the level of education and tends to be higher among female population?**
+
+We'll need to analyze the following variables to answer the question:
+
+* `seatbelt`: How Often Use Seatbelts In Car?
+* `educa`: Education Level
+* `sex`: Respondents Sex
+
+Let's start by filtering the data only for the variables we'll need and exploring the variables:
+```{r}
+seatbelts_usage <- brfss2013 %>% select(seatbelt, educa, sex) 
+
+summary(seatbelts_usage$seatbelt)
+summary(seatbelts_usage$educa)
+summary(seatbelts_usage$sex)
+```
+We've got some NAs! The amount of NAs in gender is neglectable, but in seat belt usage and education level it's more substantial. Let's look at how much of the total population NAs represent:
+```{r}
+mean(is.na(seatbelts_usage$seatbelt))
+mean(is.na(seatbelts_usage$educa))
+```
+We have 8% of our data for the seat belt usage as NAs, which is substantial, but our data will still be statistically significant if we exclude them. The proportion of NAs in education level is very small. Let's delete all NAs and all people who never drive or ride in a car:
+
+```{r}
+seatbelts_usage <- seatbelts_usage %>% filter(!is.na(seatbelt)) %>% filter(!is.na(educa)) %>% filter(!is.na(sex)) %>% filter(!seatbelt %in% c("Never drive or ride in a car"))
+
+summary(seatbelts_usage)
+```
+
+Let's look at the seat belt usage in a more visual way:
+
+```{r}
+ggplot(seatbelts_usage, aes(seatbelt)) +
+  geom_histogram(stat = "count") +
+  xlab("Seatbelt usage") +
+  ylab("Number of respondents")
+
+mean(seatbelts_usage$seatbelt == "Always")
+
+```
+More than 86% of all respondents always use seatbelts! Very optimistic! Now, let's see if we have any correlation between the seat belt usage, level of education and sex. For simplicity's sake, let's keep only the respondents who use seat belts always, nearly always or sometimes -- the number of seldom- and never-users is small and does not impact the outcome significantly.
+
+Seat belt usage vs. the level of education:
+
+```{r}
+seatbelts_usage %>% filter(seatbelt %in% c("Always", "Nearly always", "Sometimes")) %>% group_by(educa) %>% summarise(n())
+
+```
+
+As we can see, the usage of seat belts tends to grow with the education level, with not much difference between high school grads and people with 1-3 years of college.
+
+Let's look at the gender dynamics:
+```{r}
+seatbelts_usage %>% filter(seatbelt %in% c("Always", "Nearly always", "Sometimes")) %>% group_by(sex) %>% summarise(n())
+```
+
+A substantially higher number of females in BRFSS study tends to use seat belts, which supports the findings of the University of Washington study!
+
+###Research quesion 3:
+
+**Do BRFSS data show the negative corellation between weight and salary? Does this correlation differ by gender?**
+
+To answer these questions, we'll need to look at the following variables:
+
+* `weight2`: Reported Weight In Pounds
+* `sex`: Respondents Sex
+* `income2`: Income Level
+
+Let's explore the data:
+```{r}
+glimpse(brfss2013$weight2)
+```
+Oops! Our weights variable has a 'factor' type and has a couple of non-number values. Let's get rid of those and convert the variable into integers:
+```{r}
+weight_sex_income <- brfss2013 %>% select(weight2, sex, income2) %>% filter(!weight2 %in% c("", ".b")) 
+weight_sex_income$weight2 <- as.numeric(weight_sex_income$weight2)
+```
+
+Let's examine the nature of the weight distribution by plotting a histogram:
+```{r}
+ggplot(weight_sex_income, aes(weight2)) +
+  geom_histogram() +
+  xlab("Weight in pounds") +
+  ylab("Number of respondents")
+```
+
+Something is wrong here - the weights seem to be too low for the people who are 18 years old and older. Let's look at the weights data more closely:
+```{r}
+summary(weight_sex_income$weight2)
+```
+
+This doesn't look right at all! 75% of our data are lower than or equal to 103 pounds, and, according to weight-for-age charts used by doctors for those under 20, an 18-year-old boy is at a normal weight if he weighs between 117 and 207 pounds, and a girl should weigh between 100 and 181 pounds. And we even have weights as low as 3 pounds!
+
+Hence, the BRFSS data cannot be used to prove or disprove the relationship between weight and the income level because the weight numbers captured by the survey don't look correct.

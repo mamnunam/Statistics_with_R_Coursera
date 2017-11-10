@@ -1,0 +1,186 @@
+---
+title: "Statistical inference with the GSS data"
+output: 
+  html_document: 
+    fig_height: 4
+    highlight: pygments
+    theme: spacelab
+---
+
+## Setup
+
+### Load packages
+
+```{r load-packages, message = FALSE}
+library(ggplot2)
+library(dplyr)
+library(statsr)
+```
+
+### Load data
+
+```{r load-data}
+load("gss.Rdata")
+```
+
+
+
+* * *
+
+## Part 1: Data
+
+###Survey Scope and Applicability
+
+The GSS gathers data on contemporary American society in order to monitor and explain trends and constants in attitudes, behaviors, and attributes.  Hundreds of trends have been tracked since 1972. In addition, since the GSS adopted questions from earlier surveys, trends can be followed for up to 70 years.
+
+The GSS contains a standard core of demographic, behavioral, and attitudinal questions, plus topics of special interest. Among the topics covered are civil liberties, crime and violence, intergroup tolerance, morality, national spending priorities, psychological well-being, social mobility, and stress and traumatic events.
+
+GSS data are used in numerous newspaper, magazine, and journal articles, by legislators, policy makers, and educators. The GSS is also a major teaching tool in colleges and universities: more than 27,000 journal articles, books, reports, and Ph.D. dissertations are based on the GSS, and about 400,000 students use the GSS in their classes each year.
+
+###Survey Design
+
+The vast majority of GSS data are obtained in face-to-face interviews. Computer-assisted personal interviewing (CAPI) began in the 2002 GSS. Under some conditions when it has proved difficult to arrange an in-person interview with a sampled respondent, GSS interviews may be conducted by telephone.
+
+The target population of the GSS is adults (18+) living in households in the United States. From 1972 to 2004, participation in the GSS was limited to respondents who were able to do interviews in English, but since 2006, the GSS interview has been translated into and administered in Spanish, so that both English-and Spanish-speaking U.S. residents are currently included in the target population. The average responce rate for the survey is about 0.75.
+
+In general, the GSS samples closely resemble distributions reported in the Census and other authoritative sources. Because of survey non-response, sampling variation, and various other factors the GSS sample does deviate from known population figures for some variables. 
+
+The database for this Coursera project contains data points collected between 1972-2012. This subset mostly includes only questions that were included every year or almost every year.  All missing values are denoted by NA in the dataset.
+
+###Generalizability / Causality
+
+GSS is structured as an observational study with no random assignment, which means that the resulting data can't be used to establish causality. At the same time, the sampling for the study is random, which makes the results of the study generalizable to the 18+ years old adults living in households in the United States. The generalization should be used with caution, however, due to the potential sampling and non-responce bias for the reasons described above (e.g., underrepresentation of the non-English speaking individuals in the data collected before 2006.) For the purposes of this research project, the potential bias will be considered insignificant.
+
+* * *
+
+## Part 2: Research question
+
+Climate change is considered by a large number of scientists worldwide as one of the most significant challenges, which humanity is facing in the 21st century, and the role of the US in fighting this challenge is crucial. 
+
+The recent 2016 presidential elections were won by a conservative Republican party candidate, who is strongly against spending the country's budget on fighting the climate change. This victory, though, is not necessarily a proof of the low level of support for the climate change-related spending among the Republican voters as compared to the voters of other political affiliations.
+
+**Do the GSS survey data show convincing evidence that the voters with different political views have different levels of support for the climate change-related spending?** 
+
+* * *
+
+## Part 3: Exploratory data analysis
+
+###Defining and Preparing the Variables of Interest
+
+Since the voting age in the US is 18 years old, and since the GSS survey covers people who are at least 18 years old, we can consider all respondents of the survey to be eligible voters.
+
+To answer the research question, we will need to examine the following two variables:
+
+**`partyid`**: Political party affiliation
+
+**Survey question**: Generally speaking, do you usually think of yourself as a Republican, Democrat, Independent, or what?
+
+**Response levels**:
+
+```{r}
+summary(gss$partyid)
+```
+
+**`natenvir`**: Improving and protecting environment
+
+**Survey question**: We are faced with many problems in this country, none of which can be solved easily or inexpensively. I'm going to name some of these problems, and for each one I'd like you to tell me whether you think we're spending too much money on it, too little money, or about the right amount. b. Improving and protecting the environment.
+
+**Response levels**:
+
+```{r}
+summary(gss$natenvir)
+```
+
+Additionally, let's also check if the support for the climate change-related spending varies by the respondents' self-evaluated level of conservatism, which will give us a checkpoint beyond the party affiliation lines. For that, we will need to look at the following variable:
+
+**`polviews`**: Think of self as liberal or conservative
+
+**Survey question**: We hear a lot of talk these days about liberals and conservatives. I'm going to show you a seven-point scale on which the political views that people might hold are arranged from extremely liberal - point 1 - to extremely conservative - point. Where would you place yourself on this scale?
+
+**Response levels**:
+
+```{r}
+summary(gss$polviews)
+```
+
+Now, let's keep only the variables we need and filter out the NAs. As we have seen above, the answers about environment protection have the largest number of NAs (~45% of all data) but the amount of non-NA data is sufficiently large to make statistically-significant conclusions. 
+
+Additionally, there are very few supporters of the parties that are other than Republican or Democratic, so we can filter such responders out to minimize the number of levels we have.
+
+To filter out the NAs, I'll use the `filter` function from the package dplyr. To select the columns we need, I'll use the `select` function from the same package. The `partyid` and `polviews` variables are filtered for NAs separately to keep as much useful data to be compared to `natenvir` as possible.
+
+```{r}
+
+natenvir_partyid <- gss %>% select(partyid, natenvir) %>% filter(partyid != "Other Party") %>% filter(!is.na(natenvir)) %>% filter(!is.na(partyid))
+
+natenvir_polviews <- gss %>% select(natenvir, polviews) %>% filter(!is.na(natenvir)) %>% filter(!is.na(polviews))
+```
+
+Let's visualise the data we've got. First, let's look at how the willingness to support environment-related spending changes with party affiliation:
+
+```{r}
+plot(natenvir_partyid$partyid, natenvir_partyid$natenvir, xlab="Party Affiliation", ylab="Spending on Environment", col=terrain.colors(4), ann = T)
+
+legend("right", cex=0.5, title="Spending", c("Too little", "About right", "Too much"), fill=terrain.colors(4))
+```
+
+The share of the responders who think that the US government spends too much on environment protection visibly increases as the party affiliation changes from Strong Democrat to Strong Republican.
+
+Next, let's look beyond the party lines and see how the environment protection-related spending is supported by the liberals vs. conservatives in general:
+
+```{r}
+plot(natenvir_polviews$polviews, natenvir_polviews$natenvir, xlab="Political Views", ylab="Spending on Environment", col=terrain.colors(4), ann = T)
+
+legend("right", cex=0.5, title="Spending", c("Too little", "About right", "Too much"), fill=terrain.colors(4))
+```
+
+Here we see the same and even clearer correlation - the more conservative the survey respondent is, the more that responder thinks that the US government spends too much on protecting the environment.
+
+* * *
+
+## Part 4: Inference
+
+###Method and Hypotheses
+
+Since we have two categorical variables and at least one of them has more than two levels, we'll need to use the chi-square independence test for the statistical inference. Due to the specifics of this method, we will not be able to define the confidence interval.
+
+The hypotheses for this test are as follows:
+
+H^0^: The responder's opinion about environment protection-related government spending is independent from his/her political affiliation/views ("there's nothing going on").
+
+H^A^: The responder's opinion about environment protection-related government spending is dependent on his/her political affiliation/views.
+
+###Checking the conditions
+
+
+* Since GSS study is using the random sampling, the sampled observations can be considered to be independent
+
+* The study covers significantly less than 10% of the US population
+
+* Each observed case contributes to only one category of the responce
+
+* Each particular scenario has much more than 5 cases
+
+Hence, we may conclude that the chi-square method can be used appropriately.
+
+###Inference Test
+
+Lets perform the test for political affiliation and for political views separately. Let's start with the political affiliation and use the `inference` function from the statsr package. This function helps to build the tables of the expected vs. observed counts, as well as the chi-square distribution graph.
+
+```{r}
+inference(y = natenvir, x = partyid, data = natenvir_partyid, statistic = "proportion", type = "ht", alternative = "greater", method = "theoretical" )
+```
+
+The p-value for this test is close to zero, we reject the null-hypothesis and conclude that the responder's opinion about environment protection-related government spending is dependent on his/her political affiliation/views.
+
+To get another proof-point, let's do the chi-square test for the level of spending support vs. the general political views: 
+
+```{r}
+inference(y = natenvir, x = polviews, data = natenvir_polviews, statistic = "proportion", type = "ht", alternative = "greater", method = "theoretical" )
+```
+
+The p-value here is even lower than in the previous test. As a result, we once again reject the null-hypothesis and conclude that the responder's opinion about environment protection-related government spending is dependent on his/her political affiliation/views.
+
+As mentioned in the first chapter, GSS is structured as an observational study with no random assignment, which means that the resulting data can't be used to establish causality. We can, however, consider the results to be generalizable to the 18+ years old adults living in households in the United States.
+
+
